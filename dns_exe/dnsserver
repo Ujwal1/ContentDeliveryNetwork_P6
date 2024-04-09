@@ -63,13 +63,9 @@ class DNSServer:
         dns_res.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(res_ip), ttl=60))
         print("Response to send:\n", dns_res)
         # send the response
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(dns_res.pack(), client_addr)
-        except Exception as e:
-            print("Error sending response:", e)
-        finally:
-            sock.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reply_socket:
+            reply_socket.sendto(dns_res.pack(), client_addr)
+            print("Response sent to", client_addr)
 
 
     def get_server_ip(self, client_ip, qname):
