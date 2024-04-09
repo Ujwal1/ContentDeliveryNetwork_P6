@@ -6,49 +6,80 @@ from dnslib import *
 
 HOST = 'cdn-dns.khoury.northeastern.edu'
 PORT = 20500
-
+ORIGIN_SERVER = 'cdn-origin.khoury.northeastern.edu'
+QUERY_DOMAIN = 'cs5700cdn.example.com.'
+REPLICA_SIZE = 7
+REPLICA_SERVERS = [
+    "cdn-http3.khoury.northeastern.edu", 
+    "cdn-http4.khoury.northeastern.edu", 
+    "cdn-http7.khoury.northeastern.edu", 
+    "cdn-http11.khoury.northeastern.edu", 
+    "cdn-http14.khoury.northeastern.edu", 
+    "cdn-http15.khoury.northeastern.edu", 
+    "cdn-http16.khoury.northeastern.edu"
+]
 
 class DNSServer:
     def __init__(self, host=HOST, port=PORT):
         self.host = host
         self.port = port
+        self.i = 0 # index for replica servers for round-robin
 
     def run(self):
         # set up a socket with context manager, so s will be closed when interrupted
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s: # DNS uses UDP
-            s.bind((self.host, self.port))
+            # s.bind((self.host, self.port))
+            s.bind(('0.0.0.0', self.port)) # bind to all interfaces
             print(f'Server listening on {self.host}:{self.port}')
             # listen for requests
             while True:
                 data, addr = s.recvfrom(1024)
-                print("Received request from", addr)
-                # print raw DNS message data (bytes)
-                print("Raw Data:\n", data)
-                request = DNSRecord.parse(data)
-                print("Parsed Request:\n", request)
-            
+                print("\nReceived request from", addr)
                 try:
-                # parse/handle the request
-                    self.parseRequest(data)
+                    # parse/handle the request
+                    self.handle_request(data, addr)
                 except Exception as e:
-                    print("Error parsing request:", e)
+                    print("Error handling request:", e)
                     continue
 
-        
-    def parseRequest(self, data):
+    def handle_request(self, data, addr):
+        '''parse the request, resolve qname, and send response'''
         request = DNSRecord.parse(data)
-        # print attributes of the request
-        print("Reqested Domain:", request.q.qname)
-        print("Request Type:", request.q.qtype)
+        print("Parsed Request:\n", request)
         # check type == A: if false, dismiss
         if request.q.qtype != QTYPE.A:
             print("Request type is not A")
-        else:
-            print("Request type is A")
-        #     return None
-        # return request
+            return
+        # send response
+        self.send_response(request, addr)
     
-    # def buildResponse(self, request):
+    def send_response(self, request, client_addr):
+        '''construct and send packed response back to client'''
+        # resolve the requested domain 
+        res_ip = self.get_server_ip(client_addr[0])
+        # construct the response
+        dns_res = request.reply() # a reply skeleton with id, flags, and question section filled
+        dns_res.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(res_ip), ttl=60))
+        print("Response to send:\n", dns_res)
+        # send the response
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(dns_res.pack(), client_addr)
+        except Exception as e:
+            print("Error sending response:", e)
+        finally:
+            sock.close()
+
+
+    def get_server_ip(self, client_ip, qname=QUERY_DOMAIN):
+        '''use round-robin for now to return one of the replica servers' IP address'''
+        # in out simulation, the requested domain is alway the same, and we will always return one of the replica servers
+        #TODO: use active measurement (maybe scamper) to find the best replica ip
+        replica_server = REPLICA_SERVERS[self.i]
+        replica_ip = socket.gethostbyname(replica_server)
+        self.i = (self.i + 1) % REPLICA_SIZE
+        return replica_ip
+
 
                 
 # scp -v -i priv_key_path file_to_copy username@cdn-dns.khoury.northeastern.edu:
