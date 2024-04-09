@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+
+import argparse
+import socket
+from dnslib import *
+
+HOST = 'cdn-dns.khoury.northeastern.edu'
+PORT = 20500
+
+
+class DNSServer:
+    def __init__(self, host=HOST, port=PORT):
+        self.host = host
+        self.port = port
+
+    def run(self):
+        # set up a socket with context manager, so s will be closed when interrupted
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s: # DNS uses UDP
+            s.bind((self.host, self.port))
+            print(f'Server listening on {self.host}:{self.port}')
+            # listen for requests
+            while True:
+                data, addr = s.recvfrom(1024)
+                print("Received request from", addr)
+                # print raw DNS message data (bytes)
+                print("Raw Data:\n", data)
+                request = DNSRecord.parse(data)
+                print("Parsed Request:\n", request)
+            
+                try:
+                # parse/handle the request
+                    self.parseRequest(data)
+                except Exception as e:
+                    print("Error parsing request:", e)
+                    continue
+
+        
+    def parseRequest(self, data):
+        request = DNSRecord.parse(data)
+        # print attributes of the request
+        print("Reqested Domain:", request.q.qname)
+        print("Request Type:", request.q.qtype)
+        # check type == A: if false, dismiss
+        if request.q.qtype != QTYPE.A:
+            print("Request type is not A")
+        else:
+            print("Request type is A")
+        #     return None
+        # return request
+    
+    # def buildResponse(self, request):
+
+                
+# scp -v -i priv_key_path file_to_copy username@cdn-dns.khoury.northeastern.edu:
+# usage: $ ./dnsserver [-p port] [-n name]
+def main():
+    parser = argparse.ArgumentParser(description='DNS Server')
+    parser.add_argument('-p', type=int, help='port number', default=PORT)
+    parser.add_argument('-n', type=str, help='name', default=HOST)
+    args = parser.parse_args()
+
+    server = DNSServer(args.n, args.p)
+    server.run()
+
+if __name__ == '__main__':
+    main()
+                
