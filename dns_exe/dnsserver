@@ -7,7 +7,7 @@ from dnslib import *
 HOST = 'cdn-dns.khoury.northeastern.edu'
 PORT = 20500
 ORIGIN_SERVER = 'cdn-origin.khoury.northeastern.edu'
-QUERY_DOMAIN = 'cs5700cdn.example.com.'
+# QUERY_DOMAIN = 'cs5700cdn.example.com.'
 REPLICA_SIZE = 7
 REPLICA_SERVERS = [
     "cdn-http3.khoury.northeastern.edu", 
@@ -56,8 +56,9 @@ class DNSServer:
     def send_response(self, request, client_addr):
         '''construct and send packed response back to client'''
         # resolve the requested domain 
-        res_ip = self.get_server_ip(client_addr[0])
+        res_ip = self.get_server_ip(client_addr[0], request.q.qname)
         # construct the response
+        # dns_res = DNSRecord(DNSHeader(id=request.header.id, qr=1, aa=1, ra=1), q=request.q)
         dns_res = request.reply() # a reply skeleton with id, flags, and question section filled
         dns_res.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(res_ip), ttl=60))
         print("Response to send:\n", dns_res)
@@ -71,20 +72,29 @@ class DNSServer:
             sock.close()
 
 
-    def get_server_ip(self, client_ip, qname=QUERY_DOMAIN):
+    def get_server_ip(self, client_ip, qname):
         '''use round-robin for now to return one of the replica servers' IP address'''
-        # in out simulation, the requested domain is alway the same, and we will always return one of the replica servers
-        #TODO: use active measurement (maybe scamper) to find the best replica ip
+        # looks like the requested domain is alway the same (from simulation only, actual test may vary)
+        requested_domain = qname # for now; TODO: parse the requested domain and check if it's our ORIGIN_SERVER
+        #TODO: use active measurement (maybe scamper) to find the best replica ip, 
+        #TODO: can add cache to store the best replica ip for each client as well
         replica_server = REPLICA_SERVERS[self.i]
         replica_ip = socket.gethostbyname(replica_server)
         self.i = (self.i + 1) % REPLICA_SIZE
         return replica_ip
 
 
-                
+# to copy the file to the server from local machine: 
 # scp -v -i priv_key_path file_to_copy username@cdn-dns.khoury.northeastern.edu:
-# usage: $ ./dnsserver [-p port] [-n name]
+
+# to run the server on the server machine:
+# ssh into the server machine and run this program
+
+# to test our dns server, use dig in terminal:
+# dig @cdn-dns.khoury.northeastern.edu -p [port] cs5700cdn.example.com
+
 def main():
+    # usage: $ ./dnsserver [-p port] [-n name]
     parser = argparse.ArgumentParser(description='DNS Server')
     parser.add_argument('-p', type=int, help='port number', default=PORT)
     parser.add_argument('-n', type=str, help='name', default=HOST)
