@@ -3,9 +3,11 @@
 import argparse
 import socket
 from dnslib import *
+import subprocess
+import re
 
 HOST = 'cdn-dns.khoury.northeastern.edu'
-PORT = 20500
+PORT = 20520
 ORIGIN_SERVER = 'cdn-origin.khoury.northeastern.edu'
 # QUERY_DOMAIN = 'cs5700cdn.example.com.'
 REPLICA_SIZE = 7
@@ -71,16 +73,89 @@ class DNSServer:
         #     print("Response sent to", client_addr)
 
 
+    # def get_server_ip(self, client_ip, qname):
+    #     '''use round-robin for now to return one of the replica servers' IP address'''
+    #     # looks like the requested domain is alway the same (from simulation only, actual test may vary)
+    #     requested_domain = qname # for now; TODO: parse the requested domain and check if it's our ORIGIN_SERVER
+    #     #TODO: use active measurement (maybe scamper) to find the best replica ip, 
+    #     #TODO: can maybe add cache to store the best replica ip for each client as well
+    #     replica_server = REPLICA_SERVERS[self.i]
+    #     replica_ip = socket.gethostbyname(replica_server)
+    #     self.i = (self.i + 1) % REPLICA_SIZE
+    #     return replica_ip
+
     def get_server_ip(self, client_ip, qname):
-        '''use round-robin for now to return one of the replica servers' IP address'''
-        # looks like the requested domain is alway the same (from simulation only, actual test may vary)
-        requested_domain = qname # for now; TODO: parse the requested domain and check if it's our ORIGIN_SERVER
-        #TODO: use active measurement (maybe scamper) to find the best replica ip, 
-        #TODO: can maybe add cache to store the best replica ip for each client as well
-        replica_server = REPLICA_SERVERS[self.i]
-        replica_ip = socket.gethostbyname(replica_server)
-        self.i = (self.i + 1) % REPLICA_SIZE
-        return replica_ip
+        '''Use Scamper to measure latency to each replica server and select the server with the lowest latency'''
+        self.get_ip_addresses_and_write_to_file(REPLICA_SERVERS, 'replica_ips.txt')
+
+        min_latency = float('inf')
+        best_server_ip = None
+        
+
+        command = f'scamper -c "ping -c 1" replica_ips.txt'
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+
+        # print("RESULT: ", result)
+
+        if result.returncode == 0:
+            # Extract the best IP from the output
+            best_ip, best_time = self.extract_min_time_ip(result.stdout)
+            print("IP address with least average RTT:", best_ip)
+            return best_ip
+        else:
+            print("Error executing command:", result.stderr)
+                
+        return best_server_ip
+
+    def extract_min_time_ip(self, ping_output):
+        """
+        Extracts the IP address with the minimum round-trip time (RTT) from ping output.
+
+        Args:
+            ping_output: The string containing the ping results.
+
+        Returns:
+            A tuple containing the IP address with the minimum RTT and the minimum RTT, 
+            or None if no successful pings were found.
+        """
+        # Split the output into individual ping results
+        results = ping_output.split("\nping")
+
+        # Initialize variables for tracking minimum
+        min_time = float('inf')
+        min_ip = None
+
+        # Loop through each ping result
+        for result in results[1:]:
+            # Extract IP address and time from successful ping response
+            match = re.search(r"(\d+)\s+bytes from (\d+\.\d+\.\d+\.\d+), seq=0", result)
+            # print("HELLO12", result)
+            if match:
+                # print("Hello")
+                packet_size = int(match.group(1))  # Extract packet size
+                ip_address = match.group(2)
+                
+                # Extract time (assuming it's the last number before "ms")
+                time_match = re.search(r"\d+\.\d+(?=\s+ms)", result)
+                if time_match:
+                    time = float(time_match.group())
+                    # print("TIME IP:", time, ip_address)
+                    # Update minimum if current time is lower
+                    if time < min_time:
+                        min_time = time
+                        min_ip = ip_address
+
+        return min_ip, min_time
+
+    # Function to get IP addresses from hostnames
+    def get_ip_addresses_and_write_to_file(self, hostnames, filename):
+        with open(filename, 'w') as file:
+            for hostname in hostnames:
+                try:
+                    ip_address = socket.gethostbyname(hostname)
+                    file.write(ip_address + '\n')
+                except socket.error as e:
+                    print(f"Error resolving hostname {hostname}: {e}")
 
 
 # to copy the file to the server from local machine: 
