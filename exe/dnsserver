@@ -7,9 +7,8 @@ import subprocess
 import re
 
 HOST = 'cdn-dns.khoury.northeastern.edu'
-PORT = 20520
-ORIGIN_SERVER = 'cdn-origin.khoury.northeastern.edu'
-# QUERY_DOMAIN = 'cs5700cdn.example.com.'
+PORT = 20500
+EXPECTED_DOMAIN = 'cs5700cdnorigin.ccs.neu.edu'
 REPLICA_SIZE = 7
 REPLICA_SERVERS = [
     "cdn-http3.khoury.northeastern.edu", 
@@ -22,8 +21,8 @@ REPLICA_SERVERS = [
 ]
 
 class DNSServer:
-    def __init__(self, host=HOST, port=PORT):
-        self.host = host
+    def __init__(self, name, port):
+        self.name = name
         self.port = port
         self.i = 0 # index for replica servers for round-robin
 
@@ -47,30 +46,22 @@ class DNSServer:
     def handle_request(self, data, addr, sock):
         '''parse the request, resolve qname, and send response'''
         request = DNSRecord.parse(data)
-        print("Parsed Request:\n", request)
-        # check type == A: if false, dismiss
-        if request.q.qtype != QTYPE.A:
-            print("Request type is not A")
-            return
-        # send response
-        self.send_response(request, addr, sock)
+        # only respond to A type requests
+        if request.q.qtype == QTYPE.A:
+        # if request.q.qtype == QTYPE.A and request.q.qname == EXPECTED_DOMAIN:
+            self.send_response(request, addr, sock)
+    
     
     def send_response(self, request, client_addr, sock):
         '''construct and send packed response back to client'''
         # resolve the requested domain 
         res_ip = self.get_server_ip(client_addr[0], request.q.qname)
-        # construct the response
-        # dns_res = DNSRecord(DNSHeader(id=request.header.id, qr=1, aa=1, ra=1), q=request.q)
+        # construct response
         dns_res = request.reply() # a reply skeleton with id, flags, and question section filled
         dns_res.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(res_ip), ttl=60))
         print("Response to send:\n", dns_res)
-        # send the response
+        # send response
         sock.sendto(dns_res.pack(), client_addr)
-
-        # the following is not working, why?
-        # with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reply_socket:
-        #     reply_socket.sendto(dns_res.pack(), client_addr)
-        #     print("Response sent to", client_addr)
 
 
     # def get_server_ip(self, client_ip, qname):
@@ -91,12 +82,10 @@ class DNSServer:
         min_latency = float('inf')
         best_server_ip = None
         
-
         command = f'scamper -c "ping -c 1" replica_ips.txt'
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
-
         # print("RESULT: ", result)
-
+        
         if result.returncode == 0:
             # Extract the best IP from the output
             best_ip, best_time = self.extract_min_time_ip(result.stdout)

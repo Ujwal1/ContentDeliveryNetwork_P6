@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+
+import argparse
+import socket
+import http.client
+import urllib.parse
+import requests
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+ORIGIN_SERVER = 'cs5700cdnorigin.ccs.neu.edu'
+ORIGIN_SERVER_PORT = 8080
+ORIGIN_BASE_URL = "http://cs5700cdnorigin.ccs.neu.edu:8080"
+GRADING_PATH = '/grading/beacon'
+MY_PORT = 20500
+
+class MyHTTPHandler(BaseHTTPRequestHandler):    
+
+    def do_GET(self):
+        # print request
+        print(f"\nReceived request from {self.client_address[0]}:{self.client_address[1]}")
+        print(f"Request path: {self.path}")
+        # print all information
+        print("Raw Request:")
+        print(self.raw_requestline)
+        print("--------------------\n")
+
+
+        # must respond to an HTTP request for the path /grading/beacon with a 204 status code
+        if self.path == GRADING_PATH:
+            self.send_response(204)
+            self.end_headers()
+            return
+        
+        # fetch the requested resource from the origin server for now
+        res = fetch_from_origin(self.path)
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.send_header('Content-length', len(res.content))
+        self.end_headers()
+        self.wfile.write(res.content)
+
+def fetch_from_origin(path):
+    '''fetch the requested resource from the origin server'''
+    url = ORIGIN_BASE_URL + path
+    print(f"\n--------\nFetching from origin: {url}\n-----------\n")
+    response = requests.get(url)
+    return response
+
+
+def get_my_ip():
+    '''get the local IP address of the server'''
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip = s.getsockname()[0]
+    s.close()
+    print(f'\nServer IP address is {ip}\n')
+    return ip
+
+# usage: $ ./httpserver [-p port] [-o origin]
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--port', type=int, default=MY_PORT, help='Port number to listen on')
+    parser.add_argument('-o', '--origin', type=str, default=ORIGIN_SERVER, help='Origin server')
+    args = parser.parse_args()
+
+    # create a server instance
+    server_addr = (get_my_ip(), args.port)
+    http_server = HTTPServer(server_addr, MyHTTPHandler)
+    print(f'Server listening on port {args.port}')
+    http_server.serve_forever()
+
+if __name__ == '__main__':
+    main()
