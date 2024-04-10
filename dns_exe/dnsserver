@@ -37,12 +37,12 @@ class DNSServer:
                 print("\nReceived request from", addr)
                 try:
                     # parse/handle the request
-                    self.handle_request(data, addr)
+                    self.handle_request(data, addr, sock=s)
                 except Exception as e:
                     print("Error handling request:", e)
                     continue
 
-    def handle_request(self, data, addr):
+    def handle_request(self, data, addr, sock):
         '''parse the request, resolve qname, and send response'''
         request = DNSRecord.parse(data)
         print("Parsed Request:\n", request)
@@ -51,9 +51,9 @@ class DNSServer:
             print("Request type is not A")
             return
         # send response
-        self.send_response(request, addr)
+        self.send_response(request, addr, sock)
     
-    def send_response(self, request, client_addr):
+    def send_response(self, request, client_addr, sock):
         '''construct and send packed response back to client'''
         # resolve the requested domain 
         res_ip = self.get_server_ip(client_addr[0], request.q.qname)
@@ -63,9 +63,12 @@ class DNSServer:
         dns_res.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(res_ip), ttl=60))
         print("Response to send:\n", dns_res)
         # send the response
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reply_socket:
-            reply_socket.sendto(dns_res.pack(), client_addr)
-            print("Response sent to", client_addr)
+        sock.sendto(dns_res.pack(), client_addr)
+
+        # the following is not working, why?
+        # with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reply_socket:
+        #     reply_socket.sendto(dns_res.pack(), client_addr)
+        #     print("Response sent to", client_addr)
 
 
     def get_server_ip(self, client_ip, qname):
@@ -73,7 +76,7 @@ class DNSServer:
         # looks like the requested domain is alway the same (from simulation only, actual test may vary)
         requested_domain = qname # for now; TODO: parse the requested domain and check if it's our ORIGIN_SERVER
         #TODO: use active measurement (maybe scamper) to find the best replica ip, 
-        #TODO: can add cache to store the best replica ip for each client as well
+        #TODO: can maybe add cache to store the best replica ip for each client as well
         replica_server = REPLICA_SERVERS[self.i]
         replica_ip = socket.gethostbyname(replica_server)
         self.i = (self.i + 1) % REPLICA_SIZE
