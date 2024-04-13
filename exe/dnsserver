@@ -7,7 +7,7 @@ import subprocess
 import re
 
 HOST = 'cdn-dns.khoury.northeastern.edu'
-PORT = 20500
+PORT = 20520
 EXPECTED_DOMAIN = 'cs5700cdnorigin.ccs.neu.edu'
 REPLICA_SIZE = 7
 REPLICA_SERVERS = [
@@ -31,7 +31,7 @@ class DNSServer:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s: # DNS uses UDP
             # s.bind((self.host, self.port))
             s.bind(('0.0.0.0', self.port)) # bind to all interfaces
-            print(f'Server listening on {self.host}:{self.port}')
+            print(f'Server listening on {self.name}:{self.port}')
             # listen for requests
             while True:
                 data, addr = s.recvfrom(1024)
