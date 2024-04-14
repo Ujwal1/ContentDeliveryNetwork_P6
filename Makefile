@@ -10,26 +10,31 @@
 # # 	chmod +x src/httpserver/httpserver.py
 # # 	ln -sf src/httpserver/httpserver.py httpserver
 
-# deployCDN:
-# 	chmod +x deployCDN
-
-# runCDN:
-# 	chmod +x runCDN
-
-# stopCDN:
-# 	chmod +x stopCDN
-
-# httpserver: 
-# 	chmod +x httpserver
 
 all: deployCDN runCDN stopCDN httpserver
 
-deployCDN: deployCDN
+deployCDN:
 	chmod +x deployCDN
 
-runCDN: runCDN
+runCDN:
 	chmod +x runCDN
 
-stopCDN: stopCDN
+stopCDN:
 	chmod +x stopCDN
+
+
+# deployCDN: deployCDN
+# 	chmod +x deployCDN
+
+# runCDN: runCDN
+# 	chmod +x runCDN
+
+# stopCDN: stopCDN
+# 	chmod +x stopCDN
+
+httpserver: 
+	chmod +x httpserver
+
+dnsserver:
+	chmod +x dnsserver
 

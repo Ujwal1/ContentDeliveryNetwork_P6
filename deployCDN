@@ -2,6 +2,8 @@
 # usage: ./deployCDN -p <port> -o <origin> -n <name> -u <username> -i <keyfile>
 # ./deployCDN -p 20520 -o cs5700cdnorigin.ccs.neu.edu -n cdn-dns.khoury.northeastern.edu -u gupta.uj -i ssh-ed25519-gupta.uj.priv 
 
+scp -i ${10} dnsserver Makefile $8@cdn-dns.khoury.northeastern.edu:
+
 scp -i ${10} httpserver Makefile $8@cdn-http3.khoury.northeastern.edu: 
 scp -i ${10} httpserver Makefile $8@cdn-http4.khoury.northeastern.edu:
 scp -i ${10} httpserver Makefile $8@cdn-http7.khoury.northeastern.edu:
@@ -9,6 +11,8 @@ scp -i ${10} httpserver Makefile $8@cdn-http11.khoury.northeastern.edu:
 scp -i ${10} httpserver Makefile $8@cdn-http14.khoury.northeastern.edu:
 scp -i ${10} httpserver Makefile $8@cdn-http15.khoury.northeastern.edu:
 scp -i ${10} httpserver Makefile $8@cdn-http16.khoury.northeastern.edu:
+
+ssh -i ${10} $8@cdn-dns.khoury.northeastern.edu "make dnsserver; exit"
 
 ssh -i ${10} $8@cdn-http3.khoury.northeastern.edu "make httpserver; exit"
 ssh -i ${10} $8@cdn-http4.khoury.northeastern.edu "make httpserver; exit"
