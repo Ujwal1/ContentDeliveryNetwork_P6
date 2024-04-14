@@ -14,7 +14,7 @@ ORIGIN_SERVER = 'cs5700cdnorigin.ccs.neu.edu'
 ORIGIN_SERVER_PORT = 8080
 ORIGIN_BASE_URL = "http://cs5700cdnorigin.ccs.neu.edu:8080"
 GRADING_PATH = '/grading/beacon'
-MY_PORT = 20500
+MY_PORT = 20520
 
 CACHE_MAX_SIZE = 10 * 1024 * 1024  # 10MB
 TOTAL_DISK_SPACE = 2 * 1024 * 1024  # 10MB
