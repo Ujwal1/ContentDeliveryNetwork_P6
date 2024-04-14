@@ -58,8 +58,8 @@ class LRUCache(OrderedDict):
 
         super().__setitem__(key, value) # maintains the order of insertion if key exists
         
-        print(f"--- used {self.type} LRUCache space: {self.used_space} ---\n")
-        print(f"--- cached item count: {len(self)} ---\n")
+        # print(f"--- used {self.type} LRUCache space: {self.used_space} ---\n")
+        # print(f"--- cached item count: {len(self)} ---\n")
     
     def make_room(self):
         '''Remove the least recently used item from the cache. If type is disk, remove the file from disk as well.'''
@@ -76,18 +76,20 @@ class LRUCache(OrderedDict):
                 disk_cache_size -= content_size
                 os.remove(file_path)
                 disk_cache_size -= content_size # temp, update to check if used_space == disk_cache_size
-                print(f"\n--- Removed {file_path} from both disk LRU cache and disk ---\n")
+                # print(f"\n--- Removed {file_path} from both disk LRU cache and disk ---\n")
 
 
 class MyHTTPHandler(BaseHTTPRequestHandler):    
     disk_records = LRUCache(max_size=TOTAL_DISK_SPACE, cache_type='disk') # file_path("cache/file_name") -> content_size; persist through requests, reset on program restart
-    # memory_cache = LRUCache(max_size=CACHE_MAX_SIZE) # stores actual file content
+    memory_cache = LRUCache(max_size=CACHE_MAX_SIZE) # stores actual file content
     # disk_cache_size = 0 # seems to get reset with every request, moved to global
     
     # call self.get_disk_usage() on start up to get disk_cache_size
     def __init__(self, request, client_address, server):
         BaseHTTPRequestHandler.__init__(self, request, client_address, server)
+        # TODO: move this function somewhere else because __init__ is called with every request
         self.get_disk_usage() # walk through disk cache and update disk_cache and disk_cache_size
+        print(f"--- Handler init ---\n")
 
     def do_GET(self):
         ''' overide method from BaseHTTPRequestHandler, invoked whenever a GET request is received'''
@@ -114,8 +116,8 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
             res = fetch_from_origin(self.path)
             res_content = res.content
 
-            # # cache the response in memory
-            # self.save_to_memory(res_content)
+            # cache the response in memory
+            self.save_to_memory(res_content)
             # or save to disk
             self.save_to_disk(file_path, res_content)
         
@@ -128,18 +130,18 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
 
     def get_cached_content(self, file_path):
         '''get the response content from cache or disk'''
-        # # get from memory cache if exists
-        # if self.path in self.memory_cache:
-        #     print("Retrieving from cache...")
-        #     # cached_content = self.cache[self.path]
-        #     cached_content = self.memory_cache.__getitem__(self.path)
-        #     return cached_content
+        # get from memory cache if exists
+        if self.path in self.memory_cache:
+            print("Retrieving from cache...")
+            # cached_content = self.cache[self.path]
+            cached_content = self.memory_cache.__getitem__(self.path)
+            return cached_content
         
         # get from disk if exists, update LRU
         if file_path in self.disk_records:
             # update LRU order
             self.disk_records.__getitem__(file_path) # move to end, mark as most recently used
-            print("Retrieving from disk...")
+            # print("Retrieving from disk...")
             return fetch_from_disk(file_path)
 
         return None
@@ -150,7 +152,6 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
         return sum(len(content) for content in self.memory_cache.values())
 
     def get_disk_usage(self):
-        # TODO: fix: invoked with every request instead of once on start up
         """Calculate the total disk space used, should run once on start up to get disk cache size and set up disk_cache records"""
         global disk_cache_size
 
@@ -167,7 +168,7 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
             for name in files:
                 file_path = os.path.join(root, name)
                 file_size = os.path.getsize(file_path)
-                print(f"--- walking through {file_path} ---\n")
+                # print(f"--- walking through {file_path} ---\n")
                 self.disk_records.__setitem__(file_path, file_size) # set up disk_records only, does not write to disk
                 disk_cache_size += file_size              
 
@@ -185,7 +186,7 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
         '''cache the response content'''
         # Check if adding the content to cache exceeds size limit
         if len(content) <= CACHE_MAX_SIZE - self.get_cache_usage():
-            print("Caching to memory...")
+            # print("Caching to memory...")
             # self.cache[self.path] = content
             self.memory_cache.__setitem__(self.path, content)
 
@@ -209,7 +210,7 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
         with open(file_path, 'wb') as file:
             file.write(content)
 
-        print("disk cache size: ", disk_cache_size)
+        # print("disk cache size: ", disk_cache_size)
 
     
     # def make_room_in_disk(self):
@@ -231,7 +232,7 @@ def fetch_from_disk(file_path):
     '''fetch the requested resource from the disk cache'''
     # file_path format: cache/2018_FIFA_World_Cup
     if os.path.isfile(file_path): #os.path.exists(file_path) and 
-        print("\n --- Retrieving actual content from disk... \n")
+        # print("\n --- Retrieving actual content from disk... \n")
         with open(file_path, 'rb') as file:
             content = file.read()
         return content
@@ -241,7 +242,7 @@ def fetch_from_disk(file_path):
 def fetch_from_origin(path):
     '''fetch the requested resource from the origin server'''
     url = ORIGIN_BASE_URL + path
-    print(f"\n--------\nFetching from origin: {url}\n-----------\n")
+    # print(f"\n--------\nFetching from origin: {url}\n-----------\n")
     response = requests.get(url)
     return response
 
@@ -252,7 +253,7 @@ def get_my_ip():
     s.connect(("8.8.8.8", 80))
     ip = s.getsockname()[0]
     s.close()
-    print(f'\nServer IP address is {ip}\n')
+    # print(f'\nServer IP address is {ip}\n')
     return ip
 
 # usage: $ ./httpserver [-p port] [-o origin]
