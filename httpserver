@@ -245,6 +245,7 @@ def main():
     # create a server instance
     server_addr = (get_my_ip(), args.port)
     http_server = HTTPServer(server_addr, MyHTTPHandler)
+    print("ADDR:", server_addr)
     # TODO: call get_disk_usage() to set up disk_records
 
     print(f'Server listening on port {args.port}')

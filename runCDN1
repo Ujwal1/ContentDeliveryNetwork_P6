@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Function to start the httpserver on a remote host
+start_httpserver() {
+  host="$1"  # Remote host name (e.g., cdn-http3.khoury.northeastern.edu)
+  port="$2"  # Port number for the httpserver
+  output_file="$3"  # Output file for the httpserver
+
+  # Validate required arguments
+  if [[ -z "$host" || -z "$port" || -z "$output_file" ]]; then
+    echo "Error: Missing required arguments. Usage: $0 <host> <port> <output_file>"
+    exit 1
+  fi
+
+  # SSH command with improved clarity and security (avoid shell variable expansion within quotes)
+  ssh -v -i "${10}" "$8@$host" "nohup ./httpserver -p $port -o $output_file &" &
+
+  # Print informative message
+  echo "Started httpserver on $host (port: $port, output: $output_file)"
+}
+
+# Read port and output file from user (or use defaults if provided as arguments)
+port=${2:-8080}  # Default port: 8080
+output_file=${4:-httpserver.log}  # Default output file: httpserver.log
+
+# Call the start_httpserver function for each target host
+start_httpserver cdn-http3.khoury.northeastern.edu "$port" "$output_file"
+start_httpserver cdn-http4.khoury.northeastern.edu "$port" "$output_file"
+start_httpserver cdn-http7.khoury.northeastern.edu "$port" "$output_file"
+start_httpserver cdn-http11.khoury.northeastern.edu "$port" "$output_file"
+start_httpserver cdn-http14.khoury.northeastern.edu "$port" "$output_file"
+start_httpserver cdn-http15.khoury.northeastern.edu "$port" "$output_file"
+start_httpserver cdn-http16.khoury.northeastern.edu "$port" "$output_file"
+
+echo "All httpserver instances started (backgrounded)."
