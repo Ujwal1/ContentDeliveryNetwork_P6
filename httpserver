@@ -4,8 +4,8 @@ import argparse
 import os
 import sys
 import socket
-import http.client
-import urllib.parse
+import pickle
+import signal
 import requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from collections import OrderedDict
@@ -14,93 +14,131 @@ ORIGIN_SERVER = 'cs5700cdnorigin.ccs.neu.edu'
 ORIGIN_SERVER_PORT = 8080
 ORIGIN_BASE_URL = "http://cs5700cdnorigin.ccs.neu.edu:8080"
 GRADING_PATH = '/grading/beacon'
-MY_PORT = 20520
+MY_PORT = 20500
 
-CACHE_MAX_SIZE = 20 * 1024 * 1024  # 20MB
-
-# Leaving 1MB diskspace for program files and scripts. 
-TOTAL_DISK_SPACE = 18 * 1024 * 1024  # 10MB
+CACHE_MAX_SIZE = 10 * 1024 * 1024  # 10MB
 DISK_CACHE_DIR = 'cache'
 
-disk_cache_size = 0
 disk_records_is_set = False
 
-class LRUCache(OrderedDict):
-    def __init__(self, max_size, cache_type='memory'):
-        super().__init__()
-        self.capacity = max_size
-        self.used_space = 0 # cannot be updated directly, use __setitem__ to update
-        self.type = cache_type
+class LRUCache():
+    def __init__(self):
+        self.disk_records = OrderedDict() # file_path -> content_size
+        self.memory_cache = OrderedDict() # file_path -> content
+        self.capacity = CACHE_MAX_SIZE
+        self.disk_usage = 0 # cannot be updated directly, use __setitem__ to update
+        self.memory_usage = 0
 
-    def __getitem__(self, key):
-        '''override; get the value of the key and move it to the end of the cache to mark it as most recently used'''
-        self.move_to_end(key)  # Move accessed item to end to mark it as most recently used
-        value = super().__getitem__(key)
-        return value
+    def get(self, file_path):
+        '''get the value of the key and move it to the end of the cache to mark it as most recently used'''
+        content = None
 
-    # def __setitem__(self, key, value):
-    #     if key not in self:
-    #         if len(self) >= self.max_size: # len(self) is the number of items in the cache, not the size
-    #             self.popitem(last=False)  # Remove least recently used item (first item)
-    #     super().__setitem__(key, value)
-    #     self.move_to_end(key)  # Move/set item to end to mark it as most recently used
-
-    def __setitem__(self, key, value) -> None:
-        '''override; value is either actual content or content size. 
-        Add key-value pair, make room if necessary, and update used_space.'''
-
-        # If key exists, do not update value or used_space, assume value is always the same
-        if key in self:
-            self.move_to_end(key)  # Move/set item to end to mark it as most recently used
-        else:
-            content_size = len(value) if self.type == 'memory' else value
-            self.used_space += content_size 
-            while self.used_space > self.capacity:
-                self.make_room()
-
-        super().__setitem__(key, value) # maintains the order of insertion if key exists
+        if file_path in self.memory_cache: # try memory cache first
+            print(f"------ Fetched from memory")
+            self.memory_cache.move_to_end(file_path)
+            content = self.memory_cache[file_path]
+        elif file_path in self.disk_records:
+            print(f"------ Fetched from disk,putting into memory ...")
+            self.disk_records.move_to_end(file_path)  # mark as most recently used
+            content = fetch_from_disk(file_path) 
+            # self.put(file_path, content) # laod to memory cache; call to this moved to after response sent
         
-        # print(f"--- used {self.type} LRUCache space: {self.used_space} ---\n")
-        print(f"--- {self.type} LRUCache item count: {len(self)} ---\n")
+        return content
+
+    def put(self, file_path, content):
+        ''' Save the content to memory cache, if the cache is full, move LRU in memory to disk'''
+
+        # just in case called on existing item
+        if file_path in self.memory_cache:
+            self.memory_cache.move_to_end(file_path) # mark as most recently used
+            return
+
+        content_size = len(content)
+        self.memory_usage += content_size + len(file_path) # mark as saved in memory
+
+        while self.memory_usage > self.capacity: # check capacity
+            self.make_room_memory() 
+
+        # save to memory
+        self.memory_cache[file_path] = content 
+        
+        print(f"--- Put into memory done ---")
+        self.print_status()
     
-    def make_room(self):
+    def make_room_memory(self):
         '''Remove the least recently used item from the cache. If type is disk, remove the file from disk as well.'''
-        global disk_cache_size
+        # pop LRU from memory cache
+        file_path, content = self.memory_cache.popitem(last=False) # remove the first item (least recently used)
+        content_size = len(content)
+        self.memory_usage -= content_size
 
-        if self.type == 'memory': # in memory cache
-            file_path, file_content = self.popitem(last=False) # remove the first item (least recently used)
-            self.used_space -= len(file_content)
-        else: # disk cache
-            file_path, content_size = self.popitem(last=False) 
-            self.used_space -= content_size    
-            # remove the file from disk
-            if os.path.isfile(file_path):
-                self.used_space -= content_size
-                os.remove(file_path)
+        print(f"--- Made room in memory cache ---")
+        self.print_status()
 
-                disk_cache_size -= content_size # temp, update to check if used_space == disk_cache_size
-                print(f"\n--- Removed {file_path} from disk_records and disk ---\n")
+        # move to disk, make room if necessary
+        while self.disk_usage + content_size > self.capacity:
+            self.make_room_disk()
+        self.save_to_disk(file_path, content, content_size) # update disk_records and disk_usage
+
+    def make_room_disk(self):
+        '''Remove LRU from disk, update disk_records and disk_usage'''
+        file_path, content_size = self.disk_records.popitem(last=False) # remove the first item (least recently used)
+        self.disk_usage -= content_size # update disk_usage, mark as removed
+
+        # remove the file from disk
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+        
+        print(f"--- Made room in disk cache ---")
+        self.print_status()
+
+    def save_to_disk(self, file_path, content, content_size):
+        '''Save content to disk, record in disk_cache, and update disk_usage. 
+        file_path format: /cache/2018_FIFA_World_Cup'''
+
+        # record in disk_records
+        self.disk_records[file_path] = content_size # mark as saved in disk
+        self.disk_usage += content_size + len(file_path) # update disk_usage 
+
+        # write actual content to disk
+        directory = os.path.dirname(os.path.join('.', file_path))
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        with open(file_path, 'wb') as file:
+            file.write(content)
+
+        print(f"--- Saved to disk ---")
+        self.print_status()
+
+    def print_status(self):
+        '''print the current status of the cache'''
+        print(f"------- Cache status -------")
+        print(f"memory_cache count: {len(self.memory_cache)}")
+        print(f"memory_usage: {self.memory_usage}")
+        print(f"disk_records count: {len(self.disk_records)}")
+        print(f"disk_usage: {self.disk_usage}")
+        print(f"------- End of cache status -------")
+
 
 
 class MyHTTPHandler(BaseHTTPRequestHandler):    
     # expected cache behavior: persist through requests, reset on program restart
-    disk_records = LRUCache(max_size=TOTAL_DISK_SPACE, cache_type='disk') # file_path -> content_size; 
-    memory_cache = LRUCache(max_size=CACHE_MAX_SIZE) # file_path ("cache/file_name") -> actual file content
+    cache = LRUCache() # file_path -> content_size; 
     
     def __init__(self, request, client_address, server):
         '''invoked with every request, initialize the handler with the request, client address, and server instance'''
-        self.get_disk_usage() # set up disk_records, only read if disk_records is not set
+        self.load_cache_from_pickle() # load disk cache records from pickle
 
         BaseHTTPRequestHandler.__init__(self, request, client_address, server)
 
-        print(f"--- Disk cache count: {len(self.disk_records)} ---\n")
-        print(f"--- Memory cache count: {len(self.memory_cache)} ---\n")
+        print(f"--- After super.init() ---")
+        self.cache.print_status()
 
     def do_GET(self):
         ''' overide method from BaseHTTPRequestHandler, invoked whenever a GET request is received'''
         # print request
-        print(f"--- Received request from {self.client_address[0]}:{self.client_address[1]} ---\n")
-        print(f"--- Request path: {self.path} ---\n") # /2018_FIFA_World_Cup
+        print(f"--------\nReceived request from {self.client_address[0]}:{self.client_address[1]} ")
+        print(f"Request path: {self.path} \n--------\n") # /2018_FIFA_World_Cup
 
         # must respond to an HTTP request for the path /grading/beacon with a 204 status code
         if self.path == GRADING_PATH:
@@ -108,124 +146,79 @@ class MyHTTPHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         
-        # try get from cache or disk
+        # try get from memory or disk
         file_path = os.path.join(DISK_CACHE_DIR, self.path[1:])
-        res_content = self.get_cached_content(file_path) 
+        res_content = self.cache.get(file_path) # returns None if not in cache or disk
 
-        if res_content is None: # not in cache or disk
-            # fetch from origin
+        # not in memory or disk, fetch from origin
+        if not res_content: 
             res = fetch_from_origin(self.path)
             res_content = res.content
 
-            # cache the response in memory
-            self.save_to_memory(res_content)
-            # or save to disk
-            self.save_to_disk(file_path, res_content)
-        
-        # construct response and send back to client
+        # first construct response and send back to client
         self.send_response(200)
         self.send_header('Content-type', 'text/html')
         self.send_header('Content-length', len(res_content))
         self.end_headers()
         self.wfile.write(res_content)
 
-    def get_cached_content(self, file_path):
-        '''get the response content from cache or disk'''
-        # get from memory cache if exists
-        if self.path in self.memory_cache:
-            print("Retrieving from cache...")
-            # cached_content = self.cache[self.path]
-            cached_content = self.memory_cache.__getitem__(self.path)
-            return cached_content
-        
-        # get from disk if exists, update LRU
-        if file_path in self.disk_records:
-            # update LRU order
-            self.disk_records.__getitem__(file_path) # move to end, mark as most recently used
-            return fetch_from_disk(file_path)
+        print(f"--- Response to {file_path} sent ---")
 
-        return None
+        # then cache the response, LRU will be updated if exists
+        self.cache.put(file_path, res_content)
     
-    def get_cache_usage(self):
-        """Calculate the total size of cached content in memory_cache"""
-        # return sum(len(content) for content in self.cache.values())
-        return sum(len(content) for content in self.memory_cache.values())
-
-    def get_disk_usage(self):
-        """Calculate the total disk space used, should run once on start up to get disk cache size and set up disk_cache records"""
-        global disk_cache_size, disk_records_is_set
+    def load_cache_from_pickle(self):
+        '''load cache records from pickle file'''
+        global disk_records_is_set
 
         if disk_records_is_set: # already set up
-            return disk_cache_size
+            return
+        
+        if os.path.isfile('data.pickle'):
+            with open('data.pickle', 'rb') as file:
+                self.cache = pickle.load(file)
+                print(f"--- Loaded disk cache records from data.pickle ---")
+                
+        else:
+            print(f"--- No disk cache records found, walk disk ---")
+            self.walk_disk_cache()
+        
+        disk_records_is_set = True # mark cache as loaded
 
-        print(f"--- Getting disk usage ---\n")
+        self.cache.print_status()
+
+    def walk_disk_cache(self):
+        '''manually walk through the disk cache directory and set up disk_records in case of data.pickle missing'''
 
         if not os.path.exists(DISK_CACHE_DIR):
             return 0
 
-        # total_cache_size = sum(os.path.getsize(os.path.join('cache', f)) for f in os.listdir('cache') if os.path.isfile(os.path.join('cache', f)))
-
-        # walk all files in ./cache recursively and record in disk_records
         for root, dirs, files in os.walk(DISK_CACHE_DIR):
-            for name in files:
-                file_path = os.path.join(root, name)
-                file_size = os.path.getsize(file_path)
-                print(f"--- walking through {file_path} ---")
-                self.disk_records.__setitem__(file_path, file_size) # set up disk_records only, does not write to disk
-                disk_cache_size += file_size            
+            for file in files:
+                file_path = os.path.join(root, file)
+                content_size = os.path.getsize(file_path)
+                self.cache.disk_records[file_path] = content_size
+                self.cache.disk_usage += content_size + len(file_path)
+                # self.cache.put(file_path, fetch_from_disk(file_path)) # load content to memory cache
 
-        disk_records_is_set = True # mark disk_records as set
-        print(f"\n --- Done walking disk, disk_cache_size: {disk_cache_size} ---")
-        print(f" --- LRUCache disk_records usage: {self.disk_records.used_space} ---\n")
-
-        return disk_cache_size
+        print(f"--- Walked disk cache ---")
 
         
-    def save_to_memory(self, content):
-        '''cache the response content'''
-        # Check if adding the content to cache exceeds size limit
-        if len(content) <= CACHE_MAX_SIZE - self.get_cache_usage():
-            print(" --- Caching to memory... ---\n")
-            # self.cache[self.path] = content
-            self.memory_cache.__setitem__(self.path, content)
-
-    def save_to_disk(self, file_path, content):
-        '''Save content to disk, record in disk_cache, and update disk_cache_size. 
-        file_path format: /cache/2018_FIFA_World_Cup'''
-
-        global disk_cache_size, disk_records_is_set
-
-        # record in disk_records
-        content_size = len(content)
-        self.disk_records.__setitem__(file_path, content_size) # makes room on both disk_cache record and disk if necessary
-        disk_cache_size += content_size
-
-        # write content to disk
-        directory = os.path.dirname(os.path.join('.', file_path))
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        with open(file_path, 'wb') as file:
-            file.write(content)
-
-
 def fetch_from_disk(file_path):
     '''fetch the requested resource from the disk cache'''
     # file_path format: cache/2018_FIFA_World_Cup
     if os.path.isfile(file_path): #os.path.exists(file_path) and 
-        print("--- Fetching from disk... \n")
+        print("--- Fetching from disk...")
         with open(file_path, 'rb') as file:
             content = file.read()
         return content
 
-    return None
-
 def fetch_from_origin(path):
     '''fetch the requested resource from the origin server'''
     url = ORIGIN_BASE_URL + path
-    print(f"-------- Fetching from origin: {url}\n-----------\n")
+    print(f"-------- \nFetching from origin: \n{url}\n-----------\n")
     response = requests.get(url)
     return response
-
 
 def get_my_ip():
     '''get the local IP address of the server'''
@@ -236,6 +229,15 @@ def get_my_ip():
     # print(f'\nServer IP address is {ip}\n')
     return ip
 
+def save_data_on_exit(signal, frame):
+    '''signal handler to save data to a pickle file before exiting'''
+
+    with open('data.pickle', 'wb') as file:
+        pickle.dump(MyHTTPHandler.cache, file)
+    print("Process terminated. Cache object saved to pickle.")
+    sys.exit(0)
+    
+
 # usage: $ ./httpserver [-p port] [-o origin]
 def main():
     parser = argparse.ArgumentParser()
@@ -243,15 +245,20 @@ def main():
     parser.add_argument('-o', '--origin', type=str, default=ORIGIN_SERVER, help='Origin server')
     args = parser.parse_args()
 
+    # Register signal handler for termination signals from pkill
+    signal.signal(signal.SIGTERM, save_data_on_exit)
 
-    # create a server instance
-    server_addr = (get_my_ip(), args.port)
-    http_server = HTTPServer(server_addr, MyHTTPHandler)
-    print("ADDR:", server_addr)
-    # TODO: call get_disk_usage() to set up disk_records
-
-    print(f'Server listening on port {args.port}')
-    http_server.serve_forever()
+    # create http server instance and start listening
+    try:
+        server_addr = (get_my_ip(), args.port)
+        http_server = HTTPServer(server_addr, MyHTTPHandler)
+        print(f'Server listening on port {args.port}')
+        http_server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt")
+        save_data_on_exit(None, None)
+    finally:
+        sys.exit(0)
 
 if __name__ == '__main__':
     main()
