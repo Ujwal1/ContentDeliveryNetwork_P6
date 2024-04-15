@@ -16,8 +16,10 @@ ORIGIN_BASE_URL = "http://cs5700cdnorigin.ccs.neu.edu:8080"
 GRADING_PATH = '/grading/beacon'
 MY_PORT = 20520
 
-CACHE_MAX_SIZE = 10 * 1024 * 1024  # 10MB
-TOTAL_DISK_SPACE = 2 * 1024 * 1024  # 10MB
+CACHE_MAX_SIZE = 20 * 1024 * 1024  # 20MB
+
+# Leaving 1MB diskspace for program files and scripts. 
+TOTAL_DISK_SPACE = 18 * 1024 * 1024  # 10MB
 DISK_CACHE_DIR = 'cache'
 
 disk_cache_size = 0
