@@ -1,7 +1,5 @@
 # Content Delivery Network Implementation - ContentDeliveryNetwork_P6
 
-Projects for CS 5700 Computer Networks by Christo Wilson class, Spring 2024.
-
 Contributors: Ujwal Gupta, Shujun Chen
 
 ## High-level Approach
@@ -42,6 +40,8 @@ Shujun Chen:
 - DNS server: basic struture, request handling
 - HTTP server: cache management
 - scripts
+
+Projects for CS 5700 Computer Networks by Christo Wilson class, Spring 2024.
 
 Ujwal Gupta:
 
